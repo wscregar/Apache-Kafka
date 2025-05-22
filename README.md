@@ -147,14 +147,7 @@ Kode:
     # Filter kelembaban tinggi
     peringatan_kelembaban = df_kelembaban.filter(col("kelembaban") > 70)
 
-Contoh Output:
-[Peringatan Suhu Tinggi]
-Gudang G2: Suhu 85°C
-
-[Peringatan Kelembaban Tinggi]
-Gudang G3: Kelembaban 74%
-
-4. Gabungkan Stream dari Dua Sensor
+### 4. Gabungkan Stream dari Dua Sensor
 Lakukan join antar dua stream berdasarkan gudang_id dan window waktu (misalnya 10 detik) untuk mendeteksi kondisi bahaya ganda.
 
 Kode:
@@ -180,4 +173,16 @@ Kode:
 c. Buat Peringatan Gabungan:
 Jika ditemukan suhu > 80°C dan kelembaban > 70% pada gudang yang sama, tampilkan peringatan kritis.
 
-## Output Gabungan:
+## Output:
+
+![image](https://github.com/user-attachments/assets/07ad5178-ea0f-432c-99e1-5874f031d68a)
+
+![image](https://github.com/user-attachments/assets/39155790-12f8-48f5-aad2-25865c1126c4)
+
+![image](https://github.com/user-attachments/assets/2096bb26-6ee5-4552-b304-78a0252bacec)
+
+
+### Penjelasan:
+
+Masalah yang terjadi saat menjalankan pyspark_consumer.py di container Docker Bitnami Spark adalah kegagalan Spark dalam menginisialisasi Java gateway karena direktori .ivy2 yang digunakan untuk mengelola dependency Maven tidak memiliki path absolut yang valid. Hal ini biasanya disebabkan oleh tidak adanya atau tidak validnya variabel lingkungan HOME dalam container, sehingga Spark dan Ivy tidak tahu di mana harus menyimpan cache dependency-nya. Akibatnya, proses JVM gagal berjalan dan menyebabkan Python SparkContext tidak dapat terhubung ke Java gateway, menghasilkan error JAVA_GATEWAY_EXITED. Untuk mengatasi masalah ini, perlu memastikan bahwa environment variable HOME di-set ke path absolut yang valid seperti /tmp dalam container, atau menjalankan script dengan spark-submit yang sudah mengatur environment dengan benar, sehingga Spark dapat mengakses direktori ivy dengan path yang sesuai dan Java gateway bisa berjalan lancar.
+
