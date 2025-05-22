@@ -76,12 +76,76 @@ a. Buat PySpark Consumer
 
 Konsumsi data dari kedua topik Kafka.
 
-Kode: 
+Kode:
+    
+    from pyspark.sql import SparkSession
+    from pyspark.sql.functions import from_json, col
+    from pyspark.sql.types import StructType, StringType, IntegerType
 
+    # Buat Spark Session
+    spark = SparkSession.builder \
+    .appName("KafkaSensorConsumer") \
+    .getOrCreate()
+
+    spark.sparkContext.setLogLevel("WARN")
+
+    # Schema masing-masing data
+    schema_suhu = StructType().add("gudang_id", StringType()).add("suhu", IntegerType())
+    schema_kelembaban = StructType().add("gudang_id", StringType()).add("kelembaban", IntegerType())
+
+    # Stream suhu
+    df_suhu = spark.readStream.format("kafka") \
+    .option("kafka.bootstrap.servers", "localhost:9092") \
+    .option("subscribe", "sensor-suhu-gudang") \
+    .load() \
+    .selectExpr("CAST(value AS STRING) as json") \
+    .select(from_json(col("json"), schema_suhu).alias("data")) \
+    .select("data.*")
+
+    # Stream kelembaban
+    df_kelembaban = spark.readStream.format("kafka") \
+    .option("kafka.bootstrap.servers", "localhost:9092") \
+    .option("subscribe", "sensor-kelembaban-gudang") \
+    .load() \
+    .selectExpr("CAST(value AS STRING) as json") \
+    .select(from_json(col("json"), schema_kelembaban).alias("data")) \
+    .select("data.*")
+
+    # Filter suhu tinggi
+    peringatan_suhu = df_suhu.filter(col("suhu") > 80)
+
+    # Filter kelembaban tinggi
+    peringatan_kelembaban = df_kelembaban.filter(col("kelembaban") > 70)
+
+    # Tampilkan ke console
+    query_suhu = peringatan_suhu.writeStream \
+    .outputMode("append") \
+    .format("console") \
+    .option("truncate", False) \
+    .start()
+
+    query_kelembaban = peringatan_kelembaban.writeStream \
+    .outputMode("append") \
+    .format("console") \
+    .option("truncate", False) \
+    .start()
+
+    query_suhu.awaitTermination()
+    query_kelembaban.awaitTermination()
+    
 b. Lakukan Filtering:
+
 Suhu > 80°C → tampilkan sebagai peringatan suhu tinggi
 
 Kelembaban > 70% → tampilkan sebagai peringatan kelembaban tinggi
+
+Kode:
+
+    # Filter suhu tinggi
+    peringatan_suhu = df_suhu.filter(col("suhu") > 80)
+
+    # Filter kelembaban tinggi
+    peringatan_kelembaban = df_kelembaban.filter(col("kelembaban") > 70)
 
 Contoh Output:
 [Peringatan Suhu Tinggi]
@@ -89,32 +153,31 @@ Gudang G2: Suhu 85°C
 
 [Peringatan Kelembaban Tinggi]
 Gudang G3: Kelembaban 74%
+
 4. Gabungkan Stream dari Dua Sensor
 Lakukan join antar dua stream berdasarkan gudang_id dan window waktu (misalnya 10 detik) untuk mendeteksi kondisi bahaya ganda.
 
+Kode:
+
+    # Stream suhu
+    df_suhu = spark.readStream.format("kafka") \
+    .option("kafka.bootstrap.servers", "localhost:9092") \
+    .option("subscribe", "sensor-suhu-gudang") \
+    .load() \
+    .selectExpr("CAST(value AS STRING) as json") \
+    .select(from_json(col("json"), schema_suhu).alias("data")) \
+    .select("data.*")
+
+    # Stream kelembaban
+    df_kelembaban = spark.readStream.format("kafka") \
+    .option("kafka.bootstrap.servers", "localhost:9092") \
+    .option("subscribe", "sensor-kelembaban-gudang") \
+    .load() \
+    .selectExpr("CAST(value AS STRING) as json") \
+    .select(from_json(col("json"), schema_kelembaban).alias("data")) \
+    .select("data.*")
+    
 c. Buat Peringatan Gabungan:
 Jika ditemukan suhu > 80°C dan kelembaban > 70% pada gudang yang sama, tampilkan peringatan kritis.
 
 ## Output Gabungan:
-[PERINGATAN KRITIS]
-Gudang G1:
-- Suhu: 84°C
-- Kelembaban: 73%
-- Status: Bahaya tinggi! Barang berisiko rusak
-
-Gudang G2:
-- Suhu: 78°C
-- Kelembaban: 68%
-- Status: Aman
-
-Gudang G3:
-- Suhu: 85°C
-- Kelembaban: 65%
-- Status: Suhu tinggi, kelembaban normal
-
-Gudang G4:
-- Suhu: 79°C
-- Kelembaban: 75%
-- Status: Kelembaban tinggi, suhu aman
-
-### Penyelesaian Soal 1
