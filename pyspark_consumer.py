@@ -1,19 +1,19 @@
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import from_json, col, when, current_timestamp, window
+from pyspark.sql.functions import from_json, col
 from pyspark.sql.types import StructType, StringType, IntegerType
 
-# 1. Inisialisasi Spark
+# Buat Spark Session
 spark = SparkSession.builder \
-    .appName("Gudang Monitoring") \
+    .appName("KafkaSensorConsumer") \
     .getOrCreate()
 
 spark.sparkContext.setLogLevel("WARN")
 
-# 2. Skema
+# Schema masing-masing data
 schema_suhu = StructType().add("gudang_id", StringType()).add("suhu", IntegerType())
 schema_kelembaban = StructType().add("gudang_id", StringType()).add("kelembaban", IntegerType())
 
-# 3. Baca dari Kafka
+# Stream suhu
 df_suhu = spark.readStream.format("kafka") \
     .option("kafka.bootstrap.servers", "localhost:9092") \
     .option("subscribe", "sensor-suhu-gudang") \
@@ -22,6 +22,7 @@ df_suhu = spark.readStream.format("kafka") \
     .select(from_json(col("json"), schema_suhu).alias("data")) \
     .select("data.*")
 
+# Stream kelembaban
 df_kelembaban = spark.readStream.format("kafka") \
     .option("kafka.bootstrap.servers", "localhost:9092") \
     .option("subscribe", "sensor-kelembaban-gudang") \
@@ -30,31 +31,24 @@ df_kelembaban = spark.readStream.format("kafka") \
     .select(from_json(col("json"), schema_kelembaban).alias("data")) \
     .select("data.*")
 
-# 4. Tambahkan timestamp ke masing-masing stream
-df_suhu = df_suhu.withColumn("timestamp", current_timestamp())
-df_kelembaban = df_kelembaban.withColumn("timestamp", current_timestamp())
+# Filter suhu tinggi
+peringatan_suhu = df_suhu.filter(col("suhu") > 80)
 
-# 5. Join berdasarkan gudang_id dan window waktu
-joined = df_suhu.join(
-    df_kelembaban,
-    on="gudang_id"
-).withWatermark("timestamp", "10 seconds") \
- .groupBy(window("timestamp", "10 seconds"), "gudang_id") \
- .agg({"suhu": "max", "kelembaban": "max"}) \
- .withColumnRenamed("max(suhu)", "suhu") \
- .withColumnRenamed("max(kelembaban)", "kelembaban")
+# Filter kelembaban tinggi
+peringatan_kelembaban = df_kelembaban.filter(col("kelembaban") > 70)
 
-# 6. Tambahkan kolom status
-output = joined.withColumn("status", 
-    when((col("suhu") > 80) & (col("kelembaban") > 70), "Bahaya tinggi! Barang berisiko rusak")
-    .when(col("suhu") > 80, "Suhu tinggi, kelembaban normal")
-    .when(col("kelembaban") > 70, "Kelembaban tinggi, suhu aman")
-    .otherwise("Aman"))
+# Tampilkan ke console
+query_suhu = peringatan_suhu.writeStream \
+    .outputMode("append") \
+    .format("console") \
+    .option("truncate", False) \
+    .start()
 
-# 7. Output ke console
-query = output.writeStream.outputMode("update").format("console").start()
-query.awaitTermination()
+query_kelembaban = peringatan_kelembaban.writeStream \
+    .outputMode("append") \
+    .format("console") \
+    .option("truncate", False) \
+    .start()
 
-
-
-  
+query_suhu.awaitTermination()
+query_kelembaban.awaitTermination()
